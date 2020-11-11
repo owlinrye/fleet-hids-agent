@@ -1,0 +1,3 @@
+requests==2.24
+requests_toolbelt==0.9.1
+osquery==3.0.6
