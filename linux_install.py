@@ -72,16 +72,17 @@ def install_linux(ifname, salt_master):
         return False
     version_info = get_version()
     if version_info[0] == 'ubuntu':
-       return install_ubuntu(version_info, ifname=ifname, salt_master=salt_master)
+        return install_ubuntu(version_info, ifname=ifname, salt_master=salt_master)
     elif version_info[0] == 'centos':
-        #@todo support ubuntu install
-        print_log('system info: {0} ,does not support this system yet'.format(str(version_info)), 'error')
-        return False
+        return install_centos(version_info, ifname=ifname, salt_master=salt_master)
     else:
         print_log('system info: {0} ,does not support this system yet'.format(str(version_info)), 'error')
         return False
    
 def install_ubuntu(version_info, ifname, salt_master):
+    if version_info[1] != 16:
+        print_log('Only support ubuntu 16 now...', 'error')
+        return False
     if not os.path.exists('/tmp/hids_install'):
         os.makedirs('/tmp/hids_install')
     system_packages_path = os.path.join(base_path, version_info[0], str(version_info[1]), version_info[2])
@@ -119,9 +120,45 @@ def install_ubuntu(version_info, ifname, salt_master):
         print_log('ubuntu install failed', 'error')
         return False
 
+def install_centos(version_info, ifname, salt_master):
+    
+    if version_info[1] != 7:
+        print_log('Only support centos7 now...', 'error')
+        return False
+    
+    rpm_install_cmd = 'yum localinstall -y {0}/centos/el{1}/{2}/rpm/*'.format(base_path, version_info[1], version_info[2])
+    wheel_install_cmd = 'pip install {0}/centos/el{1}/{2}/wheels/*.*'.format(base_path, version_info[1], version_info[2])  
+    
+    # install rpm and wheels
+    step_exec(rpm_install_cmd, info='1. install rpm pachages')
+    step_exec(wheel_install_cmd, info='2. install python modules') 
+ 
+    # config salt-minion
+    ip_addr = get_ip_address(ifname)
+    copy_tmp_file_cmd = '/bin/cp {0}/etc/minion {0}/etc/tmp_minion'.format(base_path, base_path)
+    minion_id_config_cmd = 'sed -i "s/#id:/id: {0}/g" {1}/etc/tmp_minion'.format(ip_addr, base_path)
+    minion_master_config_cmd = 'sed -i "s/master: salt-master/master: {0}/g" {1}/etc/tmp_minion'.format(salt_master, base_path)
+    cp_minion_cmd = '/bin/cp {0}/etc/tmp_minion /etc/salt/minion'.format(base_path)
+    res = step_exec(copy_tmp_file_cmd, '3. gen config template file') \
+          and step_exec(minion_id_config_cmd, '4. config salt minion id') \
+          and step_exec(minion_master_config_cmd, '5. config salt minion master ip') \
+          and step_exec(cp_minion_cmd, '6. copy salt minion config to /etc/salt/') 
+    if res:
+        if version_info[1] >= 7:
+            res = step_exec('systemctl enable salt-minion', '7. make salt-minion auto start') \
+                  and step_exec('systemctl start salt-minion', '8. start salt-minion service') \
+                  and step_exec('systemctl status salt-minion', '9. check salt-minion service status')
+        else:
+            res = step_exec('service salt-minion start', '7. start salt-minion service') \
+                  and step_exec('service salt-minion status', '8. check salt-minion service status')
+    else:
+        print_log('config salt-minion failed', 'error')
+    return res
+
 
 def help():
-    print_log('The script is to install fleet-hids-agent.')
+    print_log('The script is to offline install fleet-hids-agent.')
+    print_log('Only support on centos7 and ubuntu16, other verison will coming soon.')
     print_log('[*] -h or --help for help')
     print_log('[*] -i or --ifname to config hids network interface')
     print_log('[*] -m or --salt-master to config salt master ipaddr')
@@ -153,4 +190,5 @@ def main(argv):
 
 if __name__ == '__main__':
     main(sys.argv[1:])
+    #print(get_version())
     
